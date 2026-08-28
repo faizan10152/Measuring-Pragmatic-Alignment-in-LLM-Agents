@@ -12,13 +12,5 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
-# Data (excluded from version control)
-data/raw/*
-data/processed/*
-
-# Model artifacts
-*.pkl
-*.json
-
 # macOS
 .DS_Store
