@@ -223,7 +223,7 @@ notebooks/
 Syed Faizan Ali Haider · Muhammad Ghufran · Vignesh Sridhar Iyer ·
 Ankita Khedekar · Tayyab Tariq
 
-Supervised by Prof. Nils Schwager and Christoph Hau, Department II,
+Supervised by Nils Schwager and Christoph Hau, Department II,
 Computational Linguistics and Digital Humanities, University of Trier.
 
 ---
