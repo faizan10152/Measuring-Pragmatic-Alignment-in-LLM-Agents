@@ -1,25 +1,24 @@
 # Core data
 pandas
 numpy
+scipy
 
 # NLP & embeddings
 sentence-transformers
-nltk
 transformers
 torch
+nltk
 ftfy
 
-# ML / critics
-xgboost
+# Machine learning
 scikit-learn
-
-# LLM API
-groq
+xgboost
+joblib
 
 # Utilities
 openpyxl
 python-dotenv
 matplotlib
 
-# Jupyter
+# Notebooks
 jupyter

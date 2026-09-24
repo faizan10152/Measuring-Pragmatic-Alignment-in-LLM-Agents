@@ -1,97 +1,231 @@
 # Measuring Pragmatic Alignment in LLM-Based Agents
-**Research Case Study · University of Trier · NLP Master's Program · WS 2025/26**
-> Can LLMs generate replies that don't just *look* like human discourse — but *function* like it?
+
+**Research Case Study · University of Trier · NLP Master's Programme · WS 2025/26**
+
+> Can a language model generate replies that don't just *look* like human discourse, but *function* like it?
+
 ---
-## Overview
-**This project investigates **pragmatic alignment** in LLM-generated text: the degree to which a language model's output performs the same *communicative function* as an authentic human reply, not just mimicking its surface form.
-Standard text similarity metrics (BLEU, BERTScore, sentiment) measure *style*. They tell you whether the model sounds human. This project operationalizes a different question: **does the model perform the same social act?**
-The pipeline covers the full research workflow — corpus curation, exploratory analysis, a novel multi-dimensional annotation scheme, and a pragmatics-aware generation loop using LLM + XGBoost critics.**
+
+## The question
+
+A language model can produce text that reads as human. Whether it *acts* as human
+is a different question. When a person replies to a tweet they are doing something
+social — mocking, conceding, demanding, sharing an experience. That is the
+**function** of the reply, and it is not captured by BLEU, BERTScore or sentiment
+analysis, all of which measure form.
+
+This project operationalises **functional equivalence**: the degree to which a
+generated reply performs the same communicative act as the human reply it
+replaces. We call the distance between surface imitation and functional
+equivalence the **Mimicry Gap**, and the four notebooks below measure it,
+model it, and try to close it.
+
 ---
-## The Core Problem: The Mimicry Gap
-We analyzed 1,000 English political discourse samples from X (Twitter), comparing **authentic human replies** against **Qwen3 8B fine-tuned replies** for the same target tweet.
-Initial EDA revealed a critical split:
-| Dimension | Finding |
-|---|---|
-| Style similarity | **High** — sentiment distribution and POS frequency matched closely |
-| Classification accuracy | **53%** — barely above chance; a standard classifier couldn't tell them apart |
-| Lexical overlap (Jaccard) | **~2%** — the model uses completely different words |
-| Semantic similarity (SBERT) | **~45%** — moderate, but not functional equivalence |
-**Conclusion:** The model mimics the *form* of discourse but substitutes the *substance*. This is the Mimicry Gap — and it cannot be captured by traditional metrics alone.
+
+## What we found
+
+**The fine-tuned model matches style and substitutes substance.** Against human
+replies to the same tweets, it shares a Jaccard overlap of **0.022** (median
+0.000) and a semantic similarity of **0.456**, while matching human sentiment and
+part-of-speech distributions almost exactly.
+
+**Fine-tuning erased the lexical fingerprint but not the deeper one.** A
+word-frequency classifier identifies the *base* model 78% of the time and falls to
+chance — **49.6%** — against the fine-tuned one. A fine-tuned transformer still
+identifies that same output as machine-written **76%** of the time. The
+machine-ness moved out of vocabulary and into structure.
+
+**Pragmatic function is learnable, but only just.** The best classifier
+(RoBERTa-base, fine-tuned) reaches **0.767 accuracy / 0.627 macro-F1** across the
+four dimensions, against a majority-class baseline of **0.694 / 0.291**. Accuracy
+alone is close to uninformative on labels this skewed, which is why macro-F1 is
+reported throughout.
+
+**Roughly one model reply in six is functionally equivalent.** On held-out items,
+the fine-tuned model's reply carries the same label as the human's on all four
+dimensions **15.8%** of the time (chance: 10.3%), and on at least three of four
+**65.0%** of the time. Mean Cohen's κ is **0.200** — above chance, far below the
+κ = 0.77 our annotators reached with each other. The divergence is systematic:
+commands and questions become statements, neutral becomes oppositional, and
+politeness all but disappears.
+
+**Critic-guided generation improves alignment, and costs realism.** A refinement
+loop lifts alignment from 0.437 to 0.530, but roughly half of that gain is simply
+drawing more samples rather than the feedback itself. Meanwhile replies grow
+longer, vocabulary richness falls, and phrase repetition rises — monotonically,
+the harder the critics are pushed.
+
+Full numbers, including the tables these summarise, are in the notebook outputs.
+
 ---
-## Annotation Scheme
-To measure functional equivalence, we developed a **5-dimension pragmatic annotation scheme**:
+
+## Annotation scheme
+
+Each reply is labelled on four pragmatic dimensions. A fifth, sarcasm, was
+dropped after the pilot: it proved too dependent on outside knowledge to annotate
+reliably.
+
 | Dimension | Labels | What it captures |
 |---|---|---|
-| **Stance** | Support / Contest | The political position |
-| **Action** | Statement / Question / Command | The structural speech act |
-| **Personalness** | Personal Experience / General Fact | How the claim is grounded |
-| **Sarcasm** | Sarcastic / Serious | Pragmatic tone |
-| **Politeness** | Rude / Polite | The safety/register register |
-See [`docs/Annotation_Guidelines.pdf`](docs/Annotation_Guidelines.pdf) for full inter-annotator agreement protocol and label definitions.
+| **Stance** | Oppose · Neutral · Support | position toward the original post |
+| **Action** | Statement · Question · Command · Reaction | the speech act performed |
+| **Personalness** | General · Personal | grounded in lived experience or not |
+| **Politeness** | Normal · Polite · Rude | social register |
+
+Where several acts are present, an **Action Priority Hierarchy**
+(Command > Question > Statement > Reaction) decides the label. Introducing it,
+together with dropping sarcasm, raised Fleiss' κ from 0.56 in the pilot to 0.77
+on authentic replies and 0.79 on model replies. That agreement study was
+conducted for **Deliverable 1** and is not recomputed here; this repository holds
+only the merged single-label gold file.
+
 ---
-## Pragmatics-Aware Generation Pipeline
-The core technical contribution is an **RLHF-inspired agentic generation loop** that steers LLM output toward functional alignment:
-```
-Tweet + Gold Labels
-       ↓
-LLaMA (via Groq API) → candidate reply
-       ↓
-(tweet + reply) → SBERT embeddings (384-d)
-       ↓
-4 × XGBoost Critics [STANCE | ACTION | PERSONALNESS | POLITENESS]
-       ↓
-Probability-weighted alignment score
-       ↓
-Score ≥ 0.75 → ACCEPT
-Score < 0.75 → tighten prompt → regenerate
-```
-### Scoring Logic
-Each XGBoost critic outputs a probability for the gold label class. The overall alignment score is the weighted mean:
-```python
-score = mean([p_stance, p_action, p_personalness, p_politeness])
-# Threshold: score >= 0.75 → accept | else → rewrite with tighter constraints
-```
+
+## Data
+
+| File | Contents |
+|---|---|
+| `data/dataset.english.csv` | 1,000 English political-discourse items from X. Each holds a target tweet, the authentic human reply, and three Qwen3-8B replies (base, thinking, fine-tuned). |
+| `data/Annotated_dataset.xlsx` | The raw annotation workbook: 800 (tweet, authentic reply) pairs with gold labels on four dimensions. |
+| `data/annotated_clean.csv` | Generated by `src/prepare_data.py`. The canonical dataset every notebook reads. |
+
+The annotated set is **800 items**, a verified subset of the 1,000-item corpus.
+Label distributions are heavily skewed — Statement 71.4%, General 84.2%, Normal
+77.4% — and that skew shapes every result below.
+
+`src/prepare_data.py` restores text encoding by matching each pair back to the
+source corpus (798 of 800 recovered exactly), validates label values against the
+scheme, and writes the canonical CSV. It is deterministic: two runs produce
+byte-identical output.
+
 ---
-## Repository Structure
-```
-├── data/
-│   ├── raw/                  # Original Twitter corpus (1,000 samples)
-│   └── processed/            # Annotated dataset with pragmatic labels
-│
-├── notebooks/
-│   ├── 1_eda.ipynb           # Corpus analysis + Mimicry Gap findings
-│   ├── 2_classification.ipynb # Dataset prep + label inspection
-│   ├── 3_label_encoders.ipynb # LabelEncoder fitting + serialization
-│   ├── 4_rag_baseline.ipynb  # RAG-based reply generation baseline (Phi-2)
-│   └── 5_agentic_pipeline.ipynb  # Full generation + critic feedback loop
-│
-├── docs/
-│   └── Annotation_Guidelines.pdf
-│
-└── README.md
-```
+
+## Notebooks
+
+Run in order. Each executes top to bottom and its committed outputs are the
+numbers quoted above.
+
+### `1_eda.ipynb` — the Mimicry Gap
+Length, lexical diversity, Jaccard overlap, VADER sentiment, POS distributions and
+SBERT similarity between human and model replies. Then a distinguishability study:
+five detectors (TF-IDF, stylometry, SBERT, SBERT + stylometry, fine-tuned
+DistilRoBERTa) trained to separate human from machine text, run against both the
+base and the fine-tuned model so the effect of fine-tuning is isolated.
+Saves `humanness_detector.pkl`.
+
+### `2_classification.ipynb` — predicting pragmatic function
+Seven approaches on one stratified split (560 / 120 / 120, seed 42) shared by
+every model, with accuracy *and* macro-F1 per dimension against a majority-class
+baseline. Includes a representation ablation — concatenated string vs. explicit
+sentence pair vs. reply only — which finds that **the target tweet is not usable
+classifier input at this data scale**, even though annotators needed it to assign
+labels at all. Saves `critics_logreg.pkl`, `label_encoders.pkl` and
+`test_split_indices.json`.
+
+### `3_agentic_pipeline.ipynb` — critic-guided generation
+Gemini generates candidate replies for a target tweet; four critics score each
+against the gold pragmatic labels; the prompt is tightened and regenerated until
+the score clears a threshold. Four conditions separate the effect of *selecting*
+the best of several samples from the effect of critic *feedback* — a control the
+design previously lacked.
+
+The acceptance threshold is calibrated against authentic replies rather than
+assumed. This matters: **no** human reply in the held-out split reaches the 0.75
+that an earlier version of this pipeline required, so that threshold was
+unreachable by construction.
+
+Generations are cached in `pipeline_results.csv`, so the analysis re-runs without
+an API key.
+
+### `4_functional_equivalence.ipynb` — the central measurement
+Labels every fine-tuned model reply with the classifier from notebook 2 and
+compares those labels against the human gold labels for the same item:
+per-dimension match rates against a chance baseline, Cohen's κ, joint agreement
+across all four dimensions, and confusion matrices showing the *direction* of
+divergence. Reported on all items and on the held-out split separately; the
+held-out figure is the defensible one. Writes `functional_equivalence.csv` and
+`functional_equivalence_summary.csv`.
+
 ---
+
 ## Setup
+
 ```bash
-git clone https://github.com/faizan10152/Measuring-Pragmatic-Alignment-in-LLM-Based-Agents.git
-cd Measuring-Pragmatic-Alignment-in-LLM-Based-Agents
+git clone git@github.com:faizan10152/Measuring-Pragmatic-Alignment-in-LLM-Agents.git
+cd Measuring-Pragmatic-Alignment-in-LLM-Agents
+
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+
+python src/prepare_data.py     # writes data/annotated_clean.csv
+jupyter notebook
 ```
-**Required API keys** (set in `.env`):
+
+Notebook 3 needs a Gemini API key **only if you want to regenerate replies**;
+otherwise it reuses the cached results. To regenerate, copy `.env.example` to
+`.env` and fill in `GEMINI_API_KEY` (a free key allows 500 requests per model per
+day — the notebook budgets itself inside that and stops cleanly rather than
+recording empty replies as results).
+
+Notebooks 1, 2 and 4 fine-tune transformers and benefit from a GPU; they run on
+Apple Silicon (MPS) or CUDA, and on CPU more slowly. On macOS, `xgboost` needs
+OpenMP: `brew install libomp`.
+
+---
+
+## Repository
+
 ```
-GROQ_API_KEY=your_groq_key
+data/
+  dataset.english.csv         1,000-item source corpus
+  Annotated_dataset.xlsx      raw 800-item annotation workbook
+  annotated_clean.csv         canonical dataset (generated)
+  processed/plots/            EDA figures
+src/
+  prepare_data.py             encoding repair, label validation, canonical output
+notebooks/
+  1_eda.ipynb                 Mimicry Gap + detector comparison
+  2_classification.ipynb      seven models, representation ablation, critics
+  3_agentic_pipeline.ipynb    four-condition generation experiment
+  4_functional_equivalence.ipynb   human vs model pragmatic agreement
+  *.pkl, *.json, *.csv        trained critics, encoders, split indices, results
 ```
-Run notebooks in order (1 → 5). Each notebook's output feeds the next.
+
 ---
-## Key Results
-- A standard binary classifier achieved only **53% accuracy** distinguishing authentic vs. LLM-generated political replies — confirming the style-level mimicry
-- XGBoost critics trained on SBERT embeddings achieved **[insert F1 scores per dimension]** across the four pragmatic dimensions
-- The generation loop improved alignment scores on **[X%]** of initially-rejected replies through prompt re-steering
+
+## Limitations
+
+- **The model's pragmatic labels are predicted, not annotated.** Notebook 4
+  compares a human gold label against a classifier's guess, so part of every
+  disagreement is classifier error rather than genuine divergence. The
+  classifier's own macro-F1 (~0.63) bounds the resolution of that measure.
+- **The classifier is trained on human replies and applied to machine replies.**
+  That distribution shift cannot be quantified here: the hand-annotated labels for
+  model replies from Deliverable 2 are no longer available.
+- **Notebook 3 covers 16 tweets**, the number that fitted inside one day of
+  free-tier API quota. Alignment differences are consistent across conditions, but
+  the realism statistics on 16 replies are indicative, not conclusive.
+- **A judge that failed validation is reported, not hidden.** The human-vs-machine
+  detector reaches 76% on the generator it was trained on, but applied to a
+  different generator it rated machine text as *more* human than human text. Every
+  realism measure in notebook 3 is therefore model-free. Automatic judges must be
+  validated on the distribution they are applied to.
+- **The test split is 120 items** (~±4 points of standard error per dimension),
+  and rare classes — Reaction, Polite — have only a handful of instances each.
+- **RoBERTa fine-tuning is not bit-reproducible** on Apple Silicon; its figures
+  move by roughly ±0.03 between runs. Everything else reproduces exactly.
+
 ---
-## Tech Stack
-`Python` · `Qwen3 8B` · `LLaMA (Groq)` · `XGBoost` · `SBERT / sentence-transformers` · `scikit-learn` · `pandas` · `Jupyter`
+
+## Team
+
+Syed Faizan Ali Haider · Muhammad Ghufran · Vignesh Sridhar Iyer ·
+Ankita Khedekar · Tayyab Tariq
+
+Supervised by Prof. Nils Schwager and Christoph Hau, Department II,
+Computational Linguistics and Digital Humanities, University of Trier.
+
 ---
-## Context
-This is a research case study completed as part of the **Master's in Natural Language Processing** at the University of Trier (WS 2025/26). The project was completed collaboratively; my contributions focused on the agentic pipeline design, XGBoost critic training, and the scoring/threshold framework.
----
-*Pragmatic alignment is about more than sounding human — it's about acting human.*
+
+*Pragmatic alignment is about more than sounding human — it is about acting human.*
